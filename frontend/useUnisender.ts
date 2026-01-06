@@ -31,6 +31,10 @@ interface SendTemplateParams {
   substitutions?: Record<string, string>;
 }
 
+interface SendTestParams {
+  to_email: string;
+}
+
 interface SendResult {
   success: boolean;
   job_id?: string;
@@ -42,6 +46,8 @@ interface UseUnisenderReturn {
   sendEmail: (params: SendEmailParams) => Promise<SendResult>;
   /** Send email using saved template */
   sendTemplate: (params: SendTemplateParams) => Promise<SendResult>;
+  /** Send test email to verify configuration */
+  sendTest: (params: SendTestParams) => Promise<SendResult>;
   /** Loading state */
   isLoading: boolean;
   /** Last error message */
@@ -118,7 +124,38 @@ export function useUnisender({ apiUrl }: UseUnisenderConfig): UseUnisenderReturn
     [apiUrl]
   );
 
-  return { sendEmail, sendTemplate, isLoading, error };
+  const sendTest = useCallback(
+    async (params: SendTestParams): Promise<SendResult> => {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const response = await fetch(`${apiUrl}?action=test`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(params),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          setError(data.error || "Test failed");
+          return { success: false, error: data.error };
+        }
+
+        return { success: true, job_id: data.job_id };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Network error";
+        setError(message);
+        return { success: false, error: message };
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [apiUrl]
+  );
+
+  return { sendEmail, sendTemplate, sendTest, isLoading, error };
 }
 
 export default useUnisender;

@@ -212,6 +212,62 @@ def handle_send(body: dict) -> dict:
     })
 
 
+def handle_test(body: dict) -> dict:
+    """
+    POST ?action=test
+    Send test email to verify Unisender Go configuration.
+    """
+    to_email = body.get("to_email", "").strip()
+
+    if not to_email:
+        return cors_response(400, {"error": "to_email is required"})
+
+    if "@" not in to_email:
+        return cors_response(400, {"error": "Invalid email format"})
+
+    result = send_email(
+        to_email=to_email,
+        subject="Тестовое письмо от Unisender Go",
+        body_html="""
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h1 style="color: #333;">Тестовое письмо</h1>
+            <p>Если вы видите это письмо — настройка Unisender Go прошла успешно!</p>
+            <p style="color: #666; font-size: 14px;">
+                Отправитель: {{sender_email}}<br>
+                Время: {{timestamp}}
+            </p>
+            <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+            <p style="color: #999; font-size: 12px;">
+                Это автоматическое тестовое письмо. Отвечать на него не нужно.
+            </p>
+        </div>
+        """,
+        substitutions={
+            "sender_email": get_sender_email(),
+            "timestamp": __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        },
+        tags=["test"],
+    )
+
+    if "status" in result and result["status"] == "error":
+        return cors_response(400, {
+            "error": result.get("message", "Test failed"),
+            "code": result.get("code")
+        })
+
+    if "failed_emails" in result and result["failed_emails"]:
+        failed = result["failed_emails"][0]
+        return cors_response(400, {
+            "error": f"Email rejected: {failed.get('reason', 'unknown')}",
+        })
+
+    return cors_response(200, {
+        "success": True,
+        "message": f"Test email sent to {to_email}",
+        "job_id": result.get("job_id"),
+    })
+
+
 def handle_send_template(body: dict) -> dict:
     """
     POST ?action=send-template
@@ -282,5 +338,7 @@ def handler(event: dict, context) -> dict:
         return handle_send(body)
     elif action == "send-template" and method == "POST":
         return handle_send_template(body)
+    elif action == "test" and method == "POST":
+        return handle_test(body)
     else:
         return cors_response(400, {"error": f"Unknown action: {action}"})
