@@ -135,17 +135,23 @@ def send_email(
         message["tags"] = tags[:4]  # Max 4 tags
 
     # Send request
-    response = requests.post(
-        f"{UNISENDER_GO_API_URL}/email/send.json",
-        headers={
-            "Content-Type": "application/json",
-            "X-API-KEY": api_key,
-        },
-        json={"message": message},
-        timeout=30
-    )
-
-    return response.json()
+    try:
+        response = requests.post(
+            f"{UNISENDER_GO_API_URL}/email/send.json",
+            headers={
+                "Content-Type": "application/json",
+                "X-API-KEY": api_key,
+            },
+            json={"message": message},
+            timeout=30
+        )
+        return response.json()
+    except requests.exceptions.Timeout:
+        return {"status": "error", "message": "Unisender API timeout"}
+    except requests.exceptions.ConnectionError:
+        return {"status": "error", "message": "Unisender API unavailable"}
+    except requests.exceptions.RequestException as e:
+        return {"status": "error", "message": f"Request failed: {str(e)}"}
 
 
 # =============================================================================
