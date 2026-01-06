@@ -1,7 +1,7 @@
 /**
- * Unisender Extension - React Hook
+ * Unisender Go Extension - React Hook
  *
- * Hook for subscribing/unsubscribing to newsletter via Unisender.
+ * Hook for sending transactional emails via Unisender Go.
  */
 
 import { useState, useCallback } from "react";
@@ -14,23 +14,37 @@ interface UseUnisenderConfig {
   apiUrl: string;
 }
 
-interface SubscribeParams {
-  email: string;
-  name?: string;
-  tags?: string;
+interface SendEmailParams {
+  to_email: string;
+  to_name?: string;
+  subject: string;
+  body_html: string;
+  substitutions?: Record<string, string>;
+  tags?: string[];
 }
 
-interface UnisenderResult {
+interface SendTemplateParams {
+  to_email: string;
+  to_name?: string;
+  template_id: string;
+  subject?: string;
+  substitutions?: Record<string, string>;
+}
+
+interface SendResult {
   success: boolean;
-  person_id?: number;
-  message?: string;
+  job_id?: string;
   error?: string;
 }
 
 interface UseUnisenderReturn {
-  subscribe: (params: SubscribeParams) => Promise<UnisenderResult>;
-  unsubscribe: (email: string) => Promise<UnisenderResult>;
+  /** Send email with custom HTML body */
+  sendEmail: (params: SendEmailParams) => Promise<SendResult>;
+  /** Send email using saved template */
+  sendTemplate: (params: SendTemplateParams) => Promise<SendResult>;
+  /** Loading state */
   isLoading: boolean;
+  /** Last error message */
   error: string | null;
 }
 
@@ -42,26 +56,26 @@ export function useUnisender({ apiUrl }: UseUnisenderConfig): UseUnisenderReturn
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const subscribe = useCallback(
-    async ({ email, name, tags }: SubscribeParams): Promise<UnisenderResult> => {
+  const sendEmail = useCallback(
+    async (params: SendEmailParams): Promise<SendResult> => {
       setIsLoading(true);
       setError(null);
 
       try {
-        const response = await fetch(`${apiUrl}?action=subscribe`, {
+        const response = await fetch(`${apiUrl}?action=send`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, name, tags }),
+          body: JSON.stringify(params),
         });
 
         const data = await response.json();
 
         if (!response.ok) {
-          setError(data.error || "Subscribe failed");
+          setError(data.error || "Send failed");
           return { success: false, error: data.error };
         }
 
-        return { success: true, person_id: data.person_id };
+        return { success: true, job_id: data.job_id };
       } catch (err) {
         const message = err instanceof Error ? err.message : "Network error";
         setError(message);
@@ -73,26 +87,26 @@ export function useUnisender({ apiUrl }: UseUnisenderConfig): UseUnisenderReturn
     [apiUrl]
   );
 
-  const unsubscribe = useCallback(
-    async (email: string): Promise<UnisenderResult> => {
+  const sendTemplate = useCallback(
+    async (params: SendTemplateParams): Promise<SendResult> => {
       setIsLoading(true);
       setError(null);
 
       try {
-        const response = await fetch(`${apiUrl}?action=unsubscribe`, {
+        const response = await fetch(`${apiUrl}?action=send-template`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email }),
+          body: JSON.stringify(params),
         });
 
         const data = await response.json();
 
         if (!response.ok) {
-          setError(data.error || "Unsubscribe failed");
+          setError(data.error || "Send failed");
           return { success: false, error: data.error };
         }
 
-        return { success: true, message: data.message };
+        return { success: true, job_id: data.job_id };
       } catch (err) {
         const message = err instanceof Error ? err.message : "Network error";
         setError(message);
@@ -104,7 +118,7 @@ export function useUnisender({ apiUrl }: UseUnisenderConfig): UseUnisenderReturn
     [apiUrl]
   );
 
-  return { subscribe, unsubscribe, isLoading, error };
+  return { sendEmail, sendTemplate, isLoading, error };
 }
 
 export default useUnisender;

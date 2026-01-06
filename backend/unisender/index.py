@@ -1,13 +1,13 @@
 """
-Unisender Extension - Email Newsletter Integration
+Unisender Go Extension - Transactional Emails
 
-Подписка и отписка от рассылки через Unisender API.
+Отправка транзакционных писем через Unisender Go API.
+Подтверждения заказов, сброс пароля, уведомления и т.д.
 """
 
 import json
 import os
 from typing import Optional
-from urllib.parse import urlencode
 
 import requests
 
@@ -16,23 +16,25 @@ import requests
 # CONFIGURATION
 # =============================================================================
 
-UNISENDER_API_URL = "https://api.unisender.com/ru/api"
+UNISENDER_GO_API_URL = "https://go1.unisender.ru/ru/transactional/api/v1"
 
 
 def get_api_key() -> str:
-    """Get Unisender API key."""
+    """Get Unisender Go API key."""
     api_key = os.environ.get("UNISENDER_API_KEY", "")
     if not api_key:
         raise ValueError("UNISENDER_API_KEY not configured")
     return api_key
 
 
-def get_list_id() -> str:
-    """Get default list ID."""
-    list_id = os.environ.get("UNISENDER_LIST_ID", "")
-    if not list_id:
-        raise ValueError("UNISENDER_LIST_ID not configured")
-    return list_id
+def get_sender_email() -> str:
+    """Get default sender email."""
+    return os.environ.get("UNISENDER_SENDER_EMAIL", "")
+
+
+def get_sender_name() -> str:
+    """Get default sender name."""
+    return os.environ.get("UNISENDER_SENDER_NAME", "")
 
 
 # =============================================================================
@@ -65,69 +67,81 @@ def options_response() -> dict:
 
 
 # =============================================================================
-# UNISENDER API
+# UNISENDER GO API
 # =============================================================================
 
-def subscribe_contact(
-    email: str,
-    name: Optional[str] = None,
-    list_id: Optional[str] = None,
-    tags: Optional[str] = None,
-    double_optin: int = 3
+def send_email(
+    to_email: str,
+    subject: str,
+    body_html: str,
+    to_name: Optional[str] = None,
+    from_email: Optional[str] = None,
+    from_name: Optional[str] = None,
+    template_id: Optional[str] = None,
+    substitutions: Optional[dict] = None,
+    tags: Optional[list] = None,
+    track_links: bool = True,
+    track_read: bool = True,
 ) -> dict:
     """
-    Subscribe contact to Unisender list.
+    Send transactional email via Unisender Go.
 
-    double_optin values:
-    - 0: send confirmation email
-    - 3: add with status "new" without email (default)
-    - 4: auto-detect based on contact existence
+    Args:
+        to_email: Recipient email
+        subject: Email subject (supports {{substitutions}})
+        body_html: HTML content (supports {{substitutions}})
+        to_name: Recipient name
+        from_email: Sender email (or use default)
+        from_name: Sender name (or use default)
+        template_id: Use saved template instead of body_html
+        substitutions: Variables for template/body (e.g. {"order_id": "12345"})
+        tags: Tags for categorization (max 4)
+        track_links: Track link clicks
+        track_read: Track email opens
     """
     api_key = get_api_key()
-    target_list_id = list_id or get_list_id()
+    sender_email = from_email or get_sender_email()
+    sender_name = from_name or get_sender_name()
 
-    params = {
-        "format": "json",
-        "api_key": api_key,
-        "list_ids": target_list_id,
-        "fields[email]": email,
-        "double_optin": double_optin,
-        "overwrite": 1,
+    if not sender_email:
+        raise ValueError("Sender email not configured")
+
+    # Build recipient
+    recipient = {"email": to_email}
+    if to_name:
+        recipient["name"] = to_name
+    if substitutions:
+        recipient["substitutions"] = substitutions
+
+    # Build message
+    message = {
+        "recipients": [recipient],
+        "from_email": sender_email,
+        "subject": subject,
+        "track_links": 1 if track_links else 0,
+        "track_read": 1 if track_read else 0,
     }
 
-    if name:
-        params["fields[Name]"] = name
+    if sender_name:
+        message["from_name"] = sender_name
+
+    if template_id:
+        message["template_id"] = template_id
+    else:
+        message["body"] = {"html": body_html}
 
     if tags:
-        params["tags"] = tags
+        message["tags"] = tags[:4]  # Max 4 tags
 
+    # Send request
     response = requests.post(
-        f"{UNISENDER_API_URL}/subscribe",
-        data=params,
-        timeout=10
-    )
-
-    return response.json()
-
-
-def unsubscribe_contact(email: str, list_id: Optional[str] = None) -> dict:
-    """Unsubscribe contact from Unisender list."""
-    api_key = get_api_key()
-
-    params = {
-        "format": "json",
-        "api_key": api_key,
-        "contact_type": "email",
-        "contact": email,
-    }
-
-    if list_id:
-        params["list_ids"] = list_id
-
-    response = requests.post(
-        f"{UNISENDER_API_URL}/unsubscribe",
-        data=params,
-        timeout=10
+        f"{UNISENDER_GO_API_URL}/email/send.json",
+        headers={
+            "Content-Type": "application/json",
+            "X-API-KEY": api_key,
+        },
+        json={"message": message},
+        timeout=30
     )
 
     return response.json()
@@ -137,65 +151,109 @@ def unsubscribe_contact(email: str, list_id: Optional[str] = None) -> dict:
 # ACTION HANDLERS
 # =============================================================================
 
-def handle_subscribe(body: dict) -> dict:
+def handle_send(body: dict) -> dict:
     """
-    POST ?action=subscribe
-    Subscribe email to newsletter.
+    POST ?action=send
+    Send transactional email.
     """
-    email = body.get("email", "").strip().lower()
-    name = body.get("name", "").strip()
-    list_id = body.get("list_id")
-    tags = body.get("tags")
+    to_email = body.get("to_email", "").strip()
+    to_name = body.get("to_name", "").strip()
+    subject = body.get("subject", "").strip()
+    body_html = body.get("body_html", "").strip()
+    template_id = body.get("template_id")
+    substitutions = body.get("substitutions", {})
+    tags = body.get("tags", [])
+    from_email = body.get("from_email")
+    from_name = body.get("from_name")
 
-    if not email:
-        return cors_response(400, {"error": "Email is required"})
+    # Validation
+    if not to_email:
+        return cors_response(400, {"error": "to_email is required"})
 
-    if "@" not in email or "." not in email:
+    if "@" not in to_email:
         return cors_response(400, {"error": "Invalid email format"})
 
-    result = subscribe_contact(
-        email=email,
-        name=name if name else None,
-        list_id=list_id,
-        tags=tags
+    if not subject:
+        return cors_response(400, {"error": "subject is required"})
+
+    if not body_html and not template_id:
+        return cors_response(400, {"error": "body_html or template_id is required"})
+
+    result = send_email(
+        to_email=to_email,
+        to_name=to_name if to_name else None,
+        subject=subject,
+        body_html=body_html,
+        template_id=template_id,
+        substitutions=substitutions if substitutions else None,
+        tags=tags if tags else None,
+        from_email=from_email,
+        from_name=from_name,
     )
 
-    if "error" in result:
+    # Check for errors
+    if "status" in result and result["status"] == "error":
         return cors_response(400, {
-            "error": result.get("error", "Subscribe failed"),
+            "error": result.get("message", "Send failed"),
             "code": result.get("code")
+        })
+
+    if "failed_emails" in result and result["failed_emails"]:
+        failed = result["failed_emails"][0]
+        return cors_response(400, {
+            "error": f"Email rejected: {failed.get('reason', 'unknown')}",
+            "email": failed.get("email")
         })
 
     return cors_response(200, {
         "success": True,
-        "person_id": result.get("result", {}).get("person_id")
+        "job_id": result.get("job_id"),
+        "emails": result.get("emails", [])
     })
 
 
-def handle_unsubscribe(body: dict) -> dict:
+def handle_send_template(body: dict) -> dict:
     """
-    POST ?action=unsubscribe
-    Unsubscribe email from newsletter.
+    POST ?action=send-template
+    Send email using saved template.
     """
-    email = body.get("email", "").strip().lower()
-    list_id = body.get("list_id")
+    to_email = body.get("to_email", "").strip()
+    to_name = body.get("to_name", "").strip()
+    template_id = body.get("template_id", "").strip()
+    substitutions = body.get("substitutions", {})
+    subject = body.get("subject", "").strip()
 
-    if not email:
-        return cors_response(400, {"error": "Email is required"})
+    if not to_email:
+        return cors_response(400, {"error": "to_email is required"})
 
-    result = unsubscribe_contact(email=email, list_id=list_id)
+    if not template_id:
+        return cors_response(400, {"error": "template_id is required"})
 
-    if "error" in result:
-        # "not found" is not really an error for unsubscribe
-        if "not found" in result.get("error", "").lower():
-            return cors_response(200, {"success": True, "message": "Already unsubscribed"})
+    result = send_email(
+        to_email=to_email,
+        to_name=to_name if to_name else None,
+        subject=subject or "Уведомление",
+        body_html="",
+        template_id=template_id,
+        substitutions=substitutions if substitutions else None,
+    )
 
+    if "status" in result and result["status"] == "error":
         return cors_response(400, {
-            "error": result.get("error", "Unsubscribe failed"),
+            "error": result.get("message", "Send failed"),
             "code": result.get("code")
         })
 
-    return cors_response(200, {"success": True})
+    if "failed_emails" in result and result["failed_emails"]:
+        failed = result["failed_emails"][0]
+        return cors_response(400, {
+            "error": f"Email rejected: {failed.get('reason', 'unknown')}",
+        })
+
+    return cors_response(200, {
+        "success": True,
+        "job_id": result.get("job_id"),
+    })
 
 
 # =============================================================================
@@ -220,9 +278,9 @@ def handler(event: dict, context) -> dict:
         except json.JSONDecodeError:
             return cors_response(400, {"error": "Invalid JSON"})
 
-    if action == "subscribe" and method == "POST":
-        return handle_subscribe(body)
-    elif action == "unsubscribe" and method == "POST":
-        return handle_unsubscribe(body)
+    if action == "send" and method == "POST":
+        return handle_send(body)
+    elif action == "send-template" and method == "POST":
+        return handle_send_template(body)
     else:
         return cors_response(400, {"error": f"Unknown action: {action}"})
