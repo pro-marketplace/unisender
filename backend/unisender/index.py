@@ -7,6 +7,7 @@ Unisender Go Extension - Transactional Emails
 
 import json
 import os
+from datetime import datetime
 from typing import Optional
 
 import requests
@@ -244,7 +245,7 @@ def handle_test(body: dict) -> dict:
         """,
         substitutions={
             "sender_email": get_sender_email(),
-            "timestamp": __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         },
         tags=["test"],
     )
