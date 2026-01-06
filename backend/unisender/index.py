@@ -17,7 +17,7 @@ import requests
 # CONFIGURATION
 # =============================================================================
 
-UNISENDER_GO_API_URL = "https://go1.unisender.ru/ru/transactional/api/v1"
+UNISENDER_GO_API_URL = "https://go2.unisender.ru/ru/transactional/api/v1"
 
 
 def get_api_key() -> str:
